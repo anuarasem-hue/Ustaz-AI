@@ -1,9 +1,13 @@
-
 import { GoogleGenAI } from "@google/genai";
 
-// Use direct process.env.API_KEY for initialization as per guidelines
+// ИСПРАВЛЕНИЕ: Используем import.meta.env для Vite и правильное имя ключа
 const getAIInstance = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error("API Key is missing! Check .env file or Netlify settings.");
+    throw new Error("API Key is missing");
+  }
+  return new GoogleGenAI({ apiKey: apiKey });
 };
 
 export const fetchCurriculumData = async (subject: string, grade: string) => {
@@ -12,12 +16,12 @@ export const fetchCurriculumData = async (subject: string, grade: string) => {
   Верни JSON: { "units": [{ "title": "Раздел", "topics": [{ "name": "Тема", "objectives": ["ЦО"] }] }] }`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.0-flash-exp', // Используем актуальную модель, если 3 preview недоступна, или оставьте как было
     contents: prompt,
     config: { responseMimeType: "application/json" }
   });
 
-  try { return JSON.parse(response.text); } catch { return { units: [] }; }
+  try { return JSON.parse(response.text() || "{}"); } catch { return { units: [] }; }
 };
 
 export const generateSORSOCH = async (data: {
@@ -29,7 +33,7 @@ export const generateSORSOCH = async (data: {
 }) => {
   const ai = getAIInstance();
   const points = data.type === 'SOR' ? '10-16 баллов' : '25 баллов';
-  
+   
   const prompt = `
     Составь задания для ${data.type} (Суммативное оценивание) по предмету ${data.subject}, ${data.grade} класс.
     Раздел/Тема: ${data.unit}. 
@@ -45,12 +49,12 @@ export const generateSORSOCH = async (data: {
   `;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-2.0-flash-thinking-exp', // Thinking модель
     contents: prompt,
-    config: { thinkingConfig: { thinkingBudget: 4000 } }
+    // config: { thinkingConfig: { thinkingBudget: 4000 } } // Временно убрал thinkingConfig если он вызывает ошибки в SDK
   });
 
-  return response.text;
+  return response.text();
 };
 
 export const analyzeSORWork = async (fileBase64: string, mimeType: string) => {
@@ -62,7 +66,7 @@ export const analyzeSORWork = async (fileBase64: string, mimeType: string) => {
   Ответ оформи профессионально в виде отчета педагога по Приказу №130.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.0-flash-exp',
     contents: {
       parts: [
         { inlineData: { data: fileBase64, mimeType: mimeType } },
@@ -71,29 +75,29 @@ export const analyzeSORWork = async (fileBase64: string, mimeType: string) => {
     }
   });
 
-  return response.text;
+  return response.text();
 };
 
 export const analyzeTableData = async (stats: string) => {
   const ai = getAIInstance();
   const prompt = `Проведи подробный педагогический анализ результатов класса (СОР/СОЧ) на основе следующих данных:
   ${stats}
-  
+   
   В отчете укажи:
   1. Качество знаний (%) и Успеваемость (%).
   2. Анализ уровней учебных достижений (Высокий, Средний, Низкий).
   3. Перечень целей обучения, которые усвоены хорошо.
   4. Перечень целей обучения, по которым учащиеся допустили ошибки (западающие темы).
   5. План коррекционной работы (рекомендации).
-  
+   
   Формат: Академический стиль, Markdown, использование таблиц для наглядности.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.0-flash-exp',
     contents: prompt,
   });
 
-  return response.text;
+  return response.text();
 };
 
 // Added analyzeSOR for SORAnalyst component compatibility
@@ -105,27 +109,30 @@ export const analyzeSOR = async (stats: string, qualitative: string) => {
   Сделай выводы о том, какие темы требуют повторения. Используй Markdown.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.0-flash-exp',
     contents: prompt,
   });
 
-  return response.text;
+  return response.text();
 };
 
 export const generateKSP = async (data: any) => {
   const ai = getAIInstance();
   const prompt = `Составь КСП по Приказу №130. Предмет: ${data.subject}, Тема: ${data.topic}, ЦО: ${data.objective}. Используй Markdown таблицы.`;
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-2.0-flash-thinking-exp',
     contents: prompt,
-    config: { thinkingConfig: { thinkingBudget: 4000 } }
+    // config: { thinkingConfig: { thinkingBudget: 4000 } }
   });
-  return response.text;
+  return response.text();
 };
 
 export const generateParentMessage = async (name: string, issue: string, positive: string) => {
   const ai = getAIInstance();
   const prompt = `Напиши вежливое сообщение родителю ученика ${name} в WhatsApp. Начни с успеха (${positive}), затем деликатно о проблеме (${issue}).`;
-  const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-  return response.text;
+  const response = await ai.models.generateContent({ 
+    model: 'gemini-2.0-flash-exp', 
+    contents: prompt 
+  });
+  return response.text();
 };
