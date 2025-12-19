@@ -1,69 +1,68 @@
 import { GoogleGenAI } from "@google/genai";
 
-// ИСПРАВЛЕНИЕ: Используем import.meta.env для Vite и правильное имя ключа
+// 1. Инициализация с правильным ключом для Vite
 const getAIInstance = () => {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  
   if (!apiKey) {
-    console.error("API Key is missing! Check .env file or Netlify settings.");
+    console.error("API Key is missing! Check Netlify environment variables.");
+    // Возвращаем dummy-клиент или выбрасываем ошибку, чтобы не крашить всё приложение сразу
     throw new Error("API Key is missing");
   }
-  return new GoogleGenAI({ apiKey: apiKey });
+  
+  return new GoogleGenAI({ apiKey });
+};
+
+// 2. Вспомогательная функция для получения текста (учитывает особенности новой SDK)
+const getResponseText = async (response: any) => {
+  // В новой SDK текст может лежать в response.text() как функция или свойство
+  if (typeof response.text === 'function') {
+    return response.text();
+  }
+  return response.text || "";
 };
 
 export const fetchCurriculumData = async (subject: string, grade: string) => {
-  const ai = getAIInstance();
-  const prompt = `Предоставь КТП для предмета "${subject}" и класса "${grade}" на 2024-2025 уч. год. 
-  Верни JSON: { "units": [{ "title": "Раздел", "topics": [{ "name": "Тема", "objectives": ["ЦО"] }] }] }`;
+  try {
+    const ai = getAIInstance();
+    const prompt = `Предоставь КТП для предмета "${subject}" и класса "${grade}" на 2024-2025 уч. год. 
+    Верни JSON: { "units": [{ "title": "Раздел", "topics": [{ "name": "Тема", "objectives": ["ЦО"] }] }] }`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-exp', // Используем актуальную модель, если 3 preview недоступна, или оставьте как было
-    contents: prompt,
-    config: { responseMimeType: "application/json" }
-  });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash-exp', 
+      contents: prompt,
+      config: { responseMimeType: "application/json" }
+    });
 
-  try { return JSON.parse(response.text() || "{}"); } catch { return { units: [] }; }
+    const text = await getResponseText(response);
+    return JSON.parse(text);
+  } catch (e) {
+    console.error(e);
+    return { units: [] };
+  }
 };
 
-export const generateSORSOCH = async (data: {
-  type: 'SOR' | 'SOCH',
-  subject: string,
-  unit: string,
-  grade: string,
-  objectives: string
-}) => {
+export const generateSORSOCH = async (data: any) => {
   const ai = getAIInstance();
   const points = data.type === 'SOR' ? '10-16 баллов' : '25 баллов';
    
   const prompt = `
-    Составь задания для ${data.type} (Суммативное оценивание) по предмету ${data.subject}, ${data.grade} класс.
-    Раздел/Тема: ${data.unit}. 
-    Цели обучения (ЦО): ${data.objectives}.
-    
-    ТРЕБОВАНИЯ ПРИКАЗА №130:
-    1. Общий балл: ${points}.
-    2. Разнообразные уровни мыслительных навыков (знание, применение, высокий уровень).
-    3. Четкие инструкции для учащихся.
-    4. В КОНЦЕ ОБЯЗАТЕЛЬНО: Таблица "Схема выставления баллов и дескрипторы" для каждого задания.
-    
-    Формат: Markdown с таблицами.
+    Составь задания для ${data.type} по предмету ${data.subject}, ${data.grade} класс.
+    Раздел: ${data.unit}. ЦО: ${data.objectives}.
+    Общий балл: ${points}. Обязательно таблицу баллов в конце. Markdown.
   `;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-thinking-exp', // Thinking модель
-    contents: prompt,
-    // config: { thinkingConfig: { thinkingBudget: 4000 } } // Временно убрал thinkingConfig если он вызывает ошибки в SDK
+    model: 'gemini-2.0-flash-exp',
+    contents: prompt
   });
 
-  return response.text();
+  return getResponseText(response);
 };
 
 export const analyzeSORWork = async (fileBase64: string, mimeType: string) => {
   const ai = getAIInstance();
-  const prompt = `Проанализируй эту работу ученика (СОР/СОЧ). 
-  1. Определи достигнутые и недостигнутые цели обучения.
-  2. Выяви типичные ошибки.
-  3. Дай рекомендации для коррекционной работы.
-  Ответ оформи профессионально в виде отчета педагога по Приказу №130.`;
+  const prompt = `Проанализируй работу ученика. Ошибки, рекомендации.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-2.0-flash-exp',
@@ -75,64 +74,45 @@ export const analyzeSORWork = async (fileBase64: string, mimeType: string) => {
     }
   });
 
-  return response.text();
+  return getResponseText(response);
 };
 
 export const analyzeTableData = async (stats: string) => {
   const ai = getAIInstance();
-  const prompt = `Проведи подробный педагогический анализ результатов класса (СОР/СОЧ) на основе следующих данных:
-  ${stats}
-   
-  В отчете укажи:
-  1. Качество знаний (%) и Успеваемость (%).
-  2. Анализ уровней учебных достижений (Высокий, Средний, Низкий).
-  3. Перечень целей обучения, которые усвоены хорошо.
-  4. Перечень целей обучения, по которым учащиеся допустили ошибки (западающие темы).
-  5. План коррекционной работы (рекомендации).
-   
-  Формат: Академический стиль, Markdown, использование таблиц для наглядности.`;
-
+  const prompt = `Анализ результатов класса: ${stats}. Рекомендации.`;
   const response = await ai.models.generateContent({
     model: 'gemini-2.0-flash-exp',
     contents: prompt,
   });
-
-  return response.text();
+  return getResponseText(response);
 };
 
-// Added analyzeSOR for SORAnalyst component compatibility
 export const analyzeSOR = async (stats: string, qualitative: string) => {
   const ai = getAIInstance();
-  const prompt = `Проведи педагогический анализ результатов СОР: ${stats}. 
-  Комментарии учителя: ${qualitative}.
-  Рассчитай (если не указано) и прокомментируй Качество знаний и Успеваемость. 
-  Сделай выводы о том, какие темы требуют повторения. Используй Markdown.`;
-
+  const prompt = `Анализ СОР: ${stats}. Комментарий: ${qualitative}. Выводы.`;
   const response = await ai.models.generateContent({
     model: 'gemini-2.0-flash-exp',
     contents: prompt,
   });
-
-  return response.text();
+  return getResponseText(response);
 };
 
 export const generateKSP = async (data: any) => {
   const ai = getAIInstance();
-  const prompt = `Составь КСП по Приказу №130. Предмет: ${data.subject}, Тема: ${data.topic}, ЦО: ${data.objective}. Используй Markdown таблицы.`;
+  const prompt = `КСП. Предмет: ${data.subject}, Тема: ${data.topic}.`;
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-thinking-exp',
-    contents: prompt,
-    // config: { thinkingConfig: { thinkingBudget: 4000 } }
+    model: 'gemini-2.0-flash-exp',
+    contents: prompt
   });
-  return response.text();
+  return getResponseText(response);
 };
 
 export const generateParentMessage = async (name: string, issue: string, positive: string) => {
   const ai = getAIInstance();
-  const prompt = `Напиши вежливое сообщение родителю ученика ${name} в WhatsApp. Начни с успеха (${positive}), затем деликатно о проблеме (${issue}).`;
+  const prompt = `Сообщение родителю ${name}. Позитив: ${positive}, Проблема: ${issue}.`;
   const response = await ai.models.generateContent({ 
     model: 'gemini-2.0-flash-exp', 
     contents: prompt 
   });
-  return response.text();
+  return getResponseText(response);
 };
